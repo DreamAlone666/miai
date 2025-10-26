@@ -66,6 +66,13 @@ impl Xiaoai {
         Ok(response)
     }
 
+    /// 返回内部使用的 [`reqwest::Client`]。
+    ///
+    /// 该 `Client` 会共享登录状态，可以用来做一些 `Xiaoai` 没有提供的更底层的请求。
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     /// 小爱服务的通用 GET 请求。
     ///
     /// API 服务器会和 `uri` 做 [`Url::join`]。
