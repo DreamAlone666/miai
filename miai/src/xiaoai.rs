@@ -298,6 +298,13 @@ impl Xiaoai {
             .await
     }
 
+    /// 获取小爱的对话记录。
+    ///
+    /// 会获取直到 `until` 前最多 `limit` 条记录，请注意 `device_id` 要和 `hardware` 相匹配。
+    ///
+    /// # Panics
+    ///
+    /// 当内部的 Cookies 发生锁中毒时会 panic。
     pub async fn conversations(
         &self,
         device_id: &str,
@@ -319,7 +326,7 @@ impl Xiaoai {
         Ok(records)
     }
 
-    /// 获取对话记录。
+    /// 同 [`Self::conversations`]，但返回原始的响应。
     pub async fn raw_conversations(
         &self,
         device_id: &str,
