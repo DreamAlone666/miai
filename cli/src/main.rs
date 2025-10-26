@@ -1,9 +1,9 @@
 use std::{borrow::Cow, fmt::Display, fs::File, io::BufReader, path::PathBuf};
 
-use anyhow::{Context, ensure};
+use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
-use miai::{DeviceInfo, PlayState, Xiaoai};
+use miai::{DeviceInfo, PlayState, Xiaoai, time::OffsetDateTime};
 use url::Url;
 
 const DEFAULT_AUTH_FILE: &str = "xiaoai-auth.json";
@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 以下命令需要登录
+    // 之后的命令需要登录
     let xiaoai = cli.xiaoai()?;
     if let Commands::Device = cli.command {
         let device_info = xiaoai.device_info().await?;
@@ -45,8 +45,30 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 以下命令需要设备 ID
+    // 之后的命令需要设备 ID
     let device_id = cli.device_id(&xiaoai).await?;
+    if let Commands::History = cli.command {
+        let device_info = xiaoai.device_info().await?;
+        let info = device_info
+            .iter()
+            .find(|x| x.device_id == device_id)
+            .ok_or_else(|| anyhow!("找不到设备 {device_id} 的信息"))?;
+        let records = xiaoai
+            .conversations(&device_id, &info.hardware, OffsetDateTime::now_utc(), 3)
+            .await?;
+        for (i, record) in records.iter().enumerate() {
+            if i != 0 {
+                println!();
+            }
+            println!("提问: {}", record.query);
+            println!("回答: {}", record.answer);
+            println!("  ID: {}", record.request_id);
+            println!("时间: {}", record.time);
+        }
+        return Ok(());
+    }
+
+    // 处理剩下的命令
     let response = match &cli.command {
         Commands::Say { text } => xiaoai.tts(&device_id, text).await?,
         Commands::Play { url } => {
@@ -60,11 +82,16 @@ async fn main() -> anyhow::Result<()> {
         Commands::Ask { text } => xiaoai.nlp(&device_id, text).await?,
         Commands::Pause => xiaoai.set_play_state(&device_id, PlayState::Pause).await?,
         Commands::Stop => xiaoai.set_play_state(&device_id, PlayState::Stop).await?,
+        Commands::UbusCall {
+            path,
+            method,
+            message,
+        } => xiaoai.ubus_call(&device_id, path, method, message).await?,
         _ => unreachable!("所有命令都应该被处理"),
     };
-    println!("code: {}", response.code);
+    println!("   code: {}", response.code);
     println!("message: {}", response.message);
-    println!("data: {}", response.data);
+    println!("   data: {}", response.data);
 
     Ok(())
 }
@@ -105,6 +132,14 @@ enum Commands {
     Volume { volume: u32 },
     /// 询问
     Ask { text: String },
+    /// 对话历史记录
+    History,
+    /// OpenWrt UBUS 调用
+    UbusCall {
+        path: String,
+        method: String,
+        message: String,
+    },
 }
 
 impl Cli {
