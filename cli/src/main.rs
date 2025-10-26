@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Ask { text } => xiaoai.nlp(&device_id, text).await?,
         Commands::Pause => xiaoai.set_play_state(&device_id, PlayState::Pause).await?,
         Commands::Stop => xiaoai.set_play_state(&device_id, PlayState::Stop).await?,
-        Commands::UbusCall {
+        Commands::Ubus {
             path,
             method,
             message,
@@ -132,10 +132,10 @@ enum Commands {
     Volume { volume: u32 },
     /// 询问
     Ask { text: String },
-    /// 对话历史记录
+    /// 对话记录
     History,
-    /// OpenWrt UBUS 调用
-    UbusCall {
+    /// OpenWrt UBUS call
+    Ubus {
         path: String,
         method: String,
         message: String,
