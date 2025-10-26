@@ -39,8 +39,11 @@ async fn main() -> anyhow::Result<()> {
     let xiaoai = cli.xiaoai()?;
     if let Commands::Device = cli.command {
         let device_info = xiaoai.device_info().await?;
-        for info in device_info {
-            println!("{}", DisplayDeviceInfo(info));
+        for (i, info) in device_info.into_iter().enumerate() {
+            if i != 0 {
+                println!();
+            }
+            print!("{}", DisplayDeviceInfo(info));
         }
         return Ok(());
     }
@@ -62,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
             }
             println!("提问: {}", record.query);
             println!("回答: {}", record.answer);
-            println!("  ID: {}", record.request_id);
+            println!("ID:   {}", record.request_id);
             println!("时间: {}", record.time);
         }
         return Ok(());
@@ -89,9 +92,9 @@ async fn main() -> anyhow::Result<()> {
         } => xiaoai.ubus_call(&device_id, path, method, message).await?,
         _ => unreachable!("所有命令都应该被处理"),
     };
-    println!("   code: {}", response.code);
+    println!("code:    {}", response.code);
     println!("message: {}", response.message);
-    println!("   data: {}", response.data);
+    println!("data:    {}", response.data);
 
     Ok(())
 }
@@ -180,7 +183,7 @@ struct DisplayDeviceInfo(DeviceInfo);
 impl Display for DisplayDeviceInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "名称: {}", self.0.name)?;
-        writeln!(f, "设备 ID: {}", self.0.device_id)?;
+        writeln!(f, "ID:   {}", self.0.device_id)?;
         writeln!(f, "机型: {}", self.0.hardware)
     }
 }
