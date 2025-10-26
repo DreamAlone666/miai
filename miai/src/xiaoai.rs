@@ -1,17 +1,25 @@
+mod conversation;
+
 use std::{
     collections::HashMap,
     io::{BufRead, Write},
     sync::Arc,
 };
 
-use cookie_store::serde::json::{load_all, save_incl_expired_and_nonpersistent};
+use cookie_store::{
+    RawCookie,
+    serde::json::{load_all, save_incl_expired_and_nonpersistent},
+};
 use reqwest::{Client, Url};
 use reqwest_cookie_store::CookieStoreMutex;
 use serde::Deserialize;
 use serde_json::json;
+use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::{XiaoaiResponse, login::Login, util::random_id};
+use conversation::ConversationData;
+pub use conversation::ConversationRecord;
 
 const API_SERVER: &str = "https://api2.mina.mi.com/";
 const API_UA: &str = "MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103";
@@ -58,7 +66,7 @@ impl Xiaoai {
         self.raw_device_info().await?.extract_data()
     }
 
-    /// 同 [`Xiaoai::device_info`]，但返回原始的响应。
+    /// 同 [`Self::device_info`]，但返回原始的响应。
     pub async fn raw_device_info(&self) -> crate::Result<XiaoaiResponse> {
         let response = self.get("admin/v2/device_list?master=0").await?;
         trace!("获取到设备列表: {}", response.data);
@@ -95,7 +103,7 @@ impl Xiaoai {
 
     /// 小爱服务的通用 POST 请求。
     ///
-    /// 同 [`Xiaoai::get`]，但可以带表单数据。
+    /// 同 [`Self::get`]，但可以带表单数据。
     pub async fn post(
         &self,
         uri: &str,
@@ -133,7 +141,7 @@ impl Xiaoai {
     /// 从 `reader` 加载登录状态。
     ///
     /// **不会**验证登录状态的有效性，如果在请求时出错，请尝试重新
-    /// [`login`][Xiaoai::login]。另请参见 [`cookie_store::serde::json::load_all`]。
+    /// [`login`][Self::login]。另请参见 [`cookie_store::serde::json::load_all`]。
     pub fn load<R: BufRead>(reader: R) -> cookie_store::Result<Self> {
         let cookie_store = Arc::new(CookieStoreMutex::new(load_all(reader)?));
         let client = Client::builder()
@@ -193,7 +201,7 @@ impl Xiaoai {
 
     /// 请求小爱播放音乐。
     ///
-    /// 和 [`Xiaoai::play_url`] 相比，此方法针对音频特化，能支持更多参数，但并非所有机型都支持。
+    /// 和 [`Self::play_url`] 相比，此方法针对音频特化，能支持更多参数，但并非所有机型都支持。
     /// 目前尚不支持配置这些参数，仅用作播放音乐的另一种方案。
     pub async fn play_music(&self, device_id: &str, url: &str) -> crate::Result<XiaoaiResponse> {
         const AUDIO_ID: &str = "1582971365183456177";
@@ -288,6 +296,56 @@ impl Xiaoai {
 
         self.ubus_call(device_id, "mediaplayer", "player_play_operation", &message)
             .await
+    }
+
+    pub async fn conversations(
+        &self,
+        device_id: &str,
+        hardware: &str,
+        until: OffsetDateTime,
+        limit: u32,
+    ) -> crate::Result<Vec<ConversationRecord>> {
+        // 这个响应体的 `data` 是 JSON 字符串，需要通过 String 中转一层
+        let data_string: String = self
+            .raw_conversations(device_id, hardware, until, limit)
+            .await?
+            .extract_data()?;
+        let data: ConversationData = serde_json::from_str(&data_string)?;
+        let mut records = Vec::with_capacity(data.records.len());
+        for value in data.records.into_iter() {
+            records.push(ConversationRecord::from_value(value)?);
+        }
+
+        Ok(records)
+    }
+
+    /// 获取对话记录。
+    pub async fn raw_conversations(
+        &self,
+        device_id: &str,
+        hardware: &str,
+        until: OffsetDateTime,
+        limit: u32,
+    ) -> crate::Result<XiaoaiResponse> {
+        let url = Url::parse_with_params(
+            "https://userprofile.mina.mi.com/device_profile/v2/conversation?source=dialogu",
+            &[
+                ("hardware", hardware),
+                ("timestamp", &(until.unix_timestamp() * 1000).to_string()),
+                ("limit", &limit.to_string()),
+            ],
+        )?;
+
+        // 服务端会从 Cookies 中读取 `deviceId`
+        let cookie = RawCookie::build(("deviceId", device_id))
+            .domain(url.domain().unwrap_or_default())
+            .build();
+        self.cookie_store
+            .lock()
+            .unwrap()
+            .insert_raw(&cookie, &url)?;
+
+        Ok(self.client.get(url).send().await?.json().await?)
     }
 }
 

@@ -33,6 +33,8 @@ pub mod login;
 mod util;
 mod xiaoai;
 
+pub use ::time;
+
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
 
