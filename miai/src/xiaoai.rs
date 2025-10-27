@@ -351,8 +351,10 @@ impl Xiaoai {
             .lock()
             .unwrap()
             .insert_raw(&cookie, &url)?;
+        let response: XiaoaiResponse = self.client.get(url).send().await?.json().await?;
+        trace!("获取到对话记录: {}", response.data);
 
-        Ok(self.client.get(url).send().await?.json().await?)
+        Ok(response)
     }
 }
 
