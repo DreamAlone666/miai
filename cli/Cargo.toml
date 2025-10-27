@@ -11,6 +11,7 @@ miai = { path = "../miai" }
 tokio = { version = "1.47.1", features = ["macros"] }
 url = "2.5.7"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
+time = { version = "0.3.44", features = ["local-offset"] }
 
 [[bin]]
 path = "src/main.rs"

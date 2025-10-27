@@ -3,7 +3,8 @@ use std::{borrow::Cow, fmt::Display, fs::File, io::BufReader, path::PathBuf};
 use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
-use miai::{DeviceInfo, PlayState, Xiaoai, time::OffsetDateTime};
+use miai::{DeviceInfo, PlayState, Xiaoai};
+use time::{OffsetDateTime, UtcOffset};
 use url::Url;
 
 const DEFAULT_AUTH_FILE: &str = "xiaoai-auth.json";
@@ -50,15 +51,21 @@ async fn main() -> anyhow::Result<()> {
 
     // 之后的命令需要设备 ID
     let device_id = cli.device_id(&xiaoai).await?;
-    if let Commands::History = cli.command {
+    if let Commands::History { limit } = cli.command {
         let device_info = xiaoai.device_info().await?;
         let info = device_info
             .iter()
             .find(|x| x.device_id == device_id)
             .ok_or_else(|| anyhow!("找不到设备 {device_id} 的信息"))?;
-        let records = xiaoai
-            .conversations(&device_id, &info.hardware, OffsetDateTime::now_utc(), 3)
+        let mut records = xiaoai
+            .conversations(&device_id, &info.hardware, OffsetDateTime::now_utc(), limit)
             .await?;
+        // 尝试换算成本地时间偏移
+        if let Ok(offset) = UtcOffset::current_local_offset() {
+            for record in &mut records {
+                record.time = record.time.to_offset(offset);
+            }
+        }
         for (i, record) in records.iter().enumerate() {
             if i != 0 {
                 println!();
@@ -136,7 +143,11 @@ enum Commands {
     /// 询问
     Ask { text: String },
     /// 对话记录
-    History,
+    History {
+        /// 最大条数
+        #[arg(short = 'n', long, default_value_t = 1)]
+        limit: u32,
+    },
     /// OpenWrt UBUS call
     Ubus {
         path: String,
