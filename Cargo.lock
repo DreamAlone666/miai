@@ -972,6 +972,7 @@ dependencies = [
  "openssl",
  "time",
  "tokio",
+ "tracing-subscriber",
  "url",
 ]
 

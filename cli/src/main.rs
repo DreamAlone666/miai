@@ -1,16 +1,28 @@
-use std::{borrow::Cow, fmt::Display, fs::File, io::BufReader, path::PathBuf};
+use std::{
+    borrow::Cow,
+    fmt::Display,
+    fs::File,
+    io::{self, BufReader},
+    path::PathBuf,
+};
 
 use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
 use miai::{DeviceInfo, PlayState, Xiaoai};
 use time::{OffsetDateTime, UtcOffset};
+use tracing_subscriber::EnvFilter;
 use url::Url;
 
 const DEFAULT_AUTH_FILE: &str = "xiaoai-auth.json";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
+    // 初始化日志
+    tracing_subscriber::fmt()
+        .with_writer(io::stderr)
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
     let cli = Cli::parse();
 
     if let Commands::Login = cli.command {
