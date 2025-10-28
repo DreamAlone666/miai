@@ -969,6 +969,7 @@ dependencies = [
  "clap",
  "inquire",
  "miai",
+ "once_cell",
  "openssl",
  "serde_json",
  "time",

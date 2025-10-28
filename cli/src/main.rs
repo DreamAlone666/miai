@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     fmt::Display,
     fs::File,
     io::{self, BufReader},
@@ -11,6 +10,7 @@ use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
 use miai::{DeviceInfo, PlayState, Xiaoai, conversation::AnswerPayload};
+use once_cell::unsync::OnceCell;
 use serde_json::Value;
 use time::{OffsetDateTime, UtcOffset};
 use tracing_subscriber::EnvFilter;
@@ -53,8 +53,8 @@ async fn main() -> anyhow::Result<()> {
     // 之后的命令需要登录
     let xiaoai = cli.xiaoai()?;
     if let Commands::Device = cli.command {
-        let device_info = xiaoai.device_info().await?;
-        for (i, info) in device_info.into_iter().enumerate() {
+        let device_info = cli.device_info().await?;
+        for (i, info) in device_info.iter().enumerate() {
             if i != 0 {
                 println!();
             }
@@ -64,15 +64,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 之后的命令需要设备 ID
-    let device_id = cli.device_id(&xiaoai).await?;
+    let device_id = cli.device_id().await?;
     if let Commands::History { limit } = cli.command {
-        let device_info = xiaoai.device_info().await?;
-        let info = device_info
+        let info = cli
+            .device_info()
+            .await?
             .iter()
             .find(|x| x.device_id == device_id)
-            .ok_or_else(|| anyhow!("找不到设备 {device_id} 的信息"))?;
+            .ok_or_else(|| anyhow!("找不到设备 `{device_id}` 的信息"))?;
         let mut records = xiaoai
-            .conversations(&device_id, &info.hardware, OffsetDateTime::now_utc(), limit)
+            .conversations(device_id, &info.hardware, OffsetDateTime::now_utc(), limit)
             .await?
             .records;
         // 尝试换算成本地时间偏移
@@ -86,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
                 println!();
             }
             println!("提问: {}", record.query);
+            // 目前只解析第一个应答
             if let Some(answer) = record.answers.first_mut() {
                 print!("应答: ");
                 match &mut answer.payload {
@@ -104,24 +106,24 @@ async fn main() -> anyhow::Result<()> {
 
     // 处理剩下的命令
     let response = match &cli.command {
-        Commands::Say { text } => xiaoai.tts(&device_id, text).await?,
+        Commands::Say { text } => xiaoai.tts(device_id, text).await?,
         Commands::Play { url } => {
             if let Some(url) = url {
-                xiaoai.play_url(&device_id, url.as_str()).await?
+                xiaoai.play_url(device_id, url.as_str()).await?
             } else {
-                xiaoai.set_play_state(&device_id, PlayState::Play).await?
+                xiaoai.set_play_state(device_id, PlayState::Play).await?
             }
         }
-        Commands::Volume { volume } => xiaoai.set_volume(&device_id, *volume).await?,
-        Commands::Ask { text } => xiaoai.nlp(&device_id, text).await?,
-        Commands::Pause => xiaoai.set_play_state(&device_id, PlayState::Pause).await?,
-        Commands::Stop => xiaoai.set_play_state(&device_id, PlayState::Stop).await?,
+        Commands::Volume { volume } => xiaoai.set_volume(device_id, *volume).await?,
+        Commands::Ask { text } => xiaoai.nlp(device_id, text).await?,
+        Commands::Pause => xiaoai.set_play_state(device_id, PlayState::Pause).await?,
+        Commands::Stop => xiaoai.set_play_state(device_id, PlayState::Stop).await?,
         Commands::Ubus {
             path,
             method,
             message,
-        } => xiaoai.ubus_call(&device_id, path, method, message).await?,
-        _ => unreachable!("所有命令都应该被处理"),
+        } => xiaoai.ubus_call(device_id, path, method, message).await?,
+        cmd => unreachable!("命令 `{:?}` 应该被处理", cmd),
     };
     println!("{}", serde_json::to_string_pretty(&response)?);
 
@@ -141,9 +143,63 @@ struct Cli {
     /// 指定设备 ID
     #[arg(short, long)]
     device_id: Option<String>,
+
+    #[arg(skip)]
+    xiaoai: OnceCell<Xiaoai>,
+
+    #[arg(skip)]
+    device_info: tokio::sync::OnceCell<Vec<DeviceInfo>>,
 }
 
-#[derive(Subcommand)]
+impl Cli {
+    /// 加载 [`Xiaoai`]，仅加载一次然后缓存起来。
+    fn xiaoai(&self) -> anyhow::Result<&Xiaoai> {
+        self.xiaoai.get_or_try_init(|| {
+            let file = File::open(&self.auth_file)
+                .with_context(|| format!("需要可用的认证文件 `{}`", self.auth_file.display()))?;
+
+            Xiaoai::load(BufReader::new(file))
+                .map_err(anyhow::Error::from_boxed)
+                .with_context(|| format!("加载认证文件 `{}` 失败", self.auth_file.display()))
+        })
+    }
+
+    /// 获取设备信息，仅获取一次然后缓存起来。
+    async fn device_info(&self) -> anyhow::Result<&Vec<DeviceInfo>> {
+        self.device_info
+            .get_or_try_init(async || {
+                self.xiaoai()?
+                    .device_info()
+                    .await
+                    .context("获取设备列表失败")
+            })
+            .await
+    }
+
+    /// 获取用户指定的设备 ID。
+    ///
+    /// 如果用户没有在命令行指定，则会向服务器请求设备列表。
+    /// 如果请求结果只有一个设备，会自动选择这个唯一的设备。
+    /// 如果请求结果存在多个设备，则会让用户自行选择。
+    async fn device_id(&self) -> anyhow::Result<&str> {
+        if let Some(device_id) = &self.device_id {
+            return Ok(device_id);
+        }
+
+        let info = self.device_info().await?;
+        ensure!(!info.is_empty(), "无可用设备，需要在小米音箱 APP 中绑定");
+        if info.len() == 1 {
+            return Ok(info[0].device_id.as_str());
+        }
+
+        let options = info.iter().map(DisplayDeviceInfo).collect();
+        let ans = Select::new("目标设备?", options).prompt()?;
+
+        Ok(&ans.0.device_id)
+    }
+}
+
+#[derive(Debug, Subcommand)]
 enum Commands {
     /// 登录以获得认证
     Login,
@@ -178,42 +234,9 @@ enum Commands {
     },
 }
 
-impl Cli {
-    fn xiaoai(&self) -> anyhow::Result<Xiaoai> {
-        let file = File::open(&self.auth_file)
-            .with_context(|| format!("需要可用的认证文件 {}", self.auth_file.display()))?;
+struct DisplayDeviceInfo<'a>(&'a DeviceInfo);
 
-        Xiaoai::load(BufReader::new(file))
-            .map_err(anyhow::Error::from_boxed)
-            .with_context(|| format!("加载认证文件 {} 失败", self.auth_file.display()))
-    }
-
-    /// 获取用户指定的设备 ID。
-    ///
-    /// 如果用户没有在命令行指定，则会向服务器请求设备列表。
-    /// 如果请求结果只有一个设备，会自动选择这个唯一的设备。
-    /// 如果请求结果存在多个设备，则会让用户自行选择。
-    async fn device_id(&'_ self, xiaoai: &Xiaoai) -> anyhow::Result<Cow<'_, str>> {
-        if let Some(device_id) = &self.device_id {
-            return Ok(device_id.into());
-        }
-
-        let info = xiaoai.device_info().await.context("获取设备列表失败")?;
-        ensure!(!info.is_empty(), "无可用设备，需要在小米音箱 APP 中绑定");
-        if info.len() == 1 {
-            return Ok(info[0].device_id.clone().into());
-        }
-
-        let options = info.into_iter().map(DisplayDeviceInfo).collect();
-        let ans = Select::new("目标设备?", options).prompt()?;
-
-        Ok(ans.0.device_id.into())
-    }
-}
-
-struct DisplayDeviceInfo(DeviceInfo);
-
-impl Display for DisplayDeviceInfo {
+impl Display for DisplayDeviceInfo<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "名称: {}", self.0.name)?;
         writeln!(f, "ID:   {}", self.0.device_id)?;
