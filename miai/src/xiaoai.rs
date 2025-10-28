@@ -1,5 +1,3 @@
-mod conversation;
-
 use std::{
     collections::HashMap,
     io::{BufRead, Write},
@@ -17,9 +15,7 @@ use serde_json::json;
 use time::OffsetDateTime;
 use tracing::trace;
 
-use crate::{XiaoaiResponse, login::Login, util::random_id};
-use conversation::ConversationData;
-pub use conversation::ConversationRecord;
+use crate::{XiaoaiResponse, conversation, login::Login, util::random_id};
 
 const API_SERVER: &str = "https://api2.mina.mi.com/";
 const API_UA: &str = "MiHome/6.0.103 (com.xiaomi.mihome; build:6.0.103.1; iOS 14.4.0) Alamofire/6.0.103 MICO/iOSApp/appStore/6.0.103";
@@ -311,19 +307,15 @@ impl Xiaoai {
         hardware: &str,
         until: OffsetDateTime,
         limit: u32,
-    ) -> crate::Result<Vec<ConversationRecord>> {
+    ) -> crate::Result<conversation::Data> {
         // 这个响应体的 `data` 是 JSON 字符串，需要通过 String 中转一层
         let data_string: String = self
             .raw_conversations(device_id, hardware, until, limit)
             .await?
             .extract_data()?;
-        let data: ConversationData = serde_json::from_str(&data_string)?;
-        let mut records = Vec::with_capacity(data.records.len());
-        for value in data.records.into_iter() {
-            records.push(ConversationRecord::from_value(value)?);
-        }
+        let data = serde_json::from_str(&data_string)?;
 
-        Ok(records)
+        Ok(data)
     }
 
     /// 同 [`Self::conversations`]，但返回原始的响应。

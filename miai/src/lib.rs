@@ -28,12 +28,16 @@
 //! }
 //! ```
 
+pub mod conversation;
 mod error;
 pub mod login;
 mod util;
 mod xiaoai;
 
 pub use ::time;
+pub mod json {
+    pub use serde_json::*;
+}
 
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
