@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
-use miai::{DeviceInfo, PlayState, Xiaoai};
+use miai::{DeviceInfo, PlayState, Xiaoai, conversation::AnswerPayload};
 use time::{OffsetDateTime, UtcOffset};
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -71,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow!("找不到设备 {device_id} 的信息"))?;
         let mut records = xiaoai
             .conversations(&device_id, &info.hardware, OffsetDateTime::now_utc(), limit)
-            .await?;
+            .await?
+            .records;
         // 尝试换算成本地时间偏移
         if let Ok(offset) = UtcOffset::current_local_offset() {
             for record in &mut records {
@@ -83,7 +84,16 @@ async fn main() -> anyhow::Result<()> {
                 println!();
             }
             println!("提问: {}", record.query);
-            println!("回答: {}", record.answer);
+            if let Some(answer) = record.answers.first() {
+                print!("应答: ");
+                match &answer.payload {
+                    AnswerPayload::Tts { text, .. } => println!("{text}"),
+                    AnswerPayload::Llm { text, .. } => println!("{text}"),
+                    AnswerPayload::Unknown(payload) => println!("{payload:?}"),
+                    _ => println!(),
+                }
+                println!("类型: {}", answer.kind);
+            }
             println!("ID:   {}", record.request_id);
             println!("时间: {}", record.time);
         }
