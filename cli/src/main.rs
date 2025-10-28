@@ -3,6 +3,7 @@ use std::{
     fmt::Display,
     fs::File,
     io::{self, BufReader},
+    mem::take,
     path::PathBuf,
 };
 
@@ -10,6 +11,7 @@ use anyhow::{Context, anyhow, ensure};
 use clap::{Parser, Subcommand};
 use inquire::{Confirm, Password, PasswordDisplayMode, Select, Text};
 use miai::{DeviceInfo, PlayState, Xiaoai, conversation::AnswerPayload};
+use serde_json::Value;
 use time::{OffsetDateTime, UtcOffset};
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -79,17 +81,17 @@ async fn main() -> anyhow::Result<()> {
                 record.time = record.time.to_offset(offset);
             }
         }
-        for (i, record) in records.iter().enumerate() {
+        for (i, mut record) in records.into_iter().enumerate() {
             if i != 0 {
                 println!();
             }
             println!("提问: {}", record.query);
-            if let Some(answer) = record.answers.first() {
+            if let Some(answer) = record.answers.first_mut() {
                 print!("应答: ");
-                match &answer.payload {
+                match &mut answer.payload {
                     AnswerPayload::Tts { text, .. } => println!("{text}"),
                     AnswerPayload::Llm { text, .. } => println!("{text}"),
-                    AnswerPayload::Unknown(payload) => println!("{payload:?}"),
+                    AnswerPayload::Unknown(payload) => println!("{}", Value::Object(take(payload))),
                     _ => println!(),
                 }
                 println!("类型: {}", answer.kind);
@@ -121,9 +123,7 @@ async fn main() -> anyhow::Result<()> {
         } => xiaoai.ubus_call(&device_id, path, method, message).await?,
         _ => unreachable!("所有命令都应该被处理"),
     };
-    println!("code:    {}", response.code);
-    println!("message: {}", response.message);
-    println!("data:    {}", response.data);
+    println!("{}", serde_json::to_string_pretty(&response)?);
 
     Ok(())
 }

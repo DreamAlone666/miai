@@ -970,6 +970,7 @@ dependencies = [
  "inquire",
  "miai",
  "openssl",
+ "serde_json",
  "time",
  "tokio",
  "tracing-subscriber",
