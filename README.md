@@ -65,6 +65,13 @@
   xiaoai stop   # 停止
   ```
 
+- 查询对话记录
+
+  ```sh
+  xiaoai history
+  xiaoai history -n 3  # 可以指定条数
+  ```
+
 - 认证均使用认证文件，可以指定认证文件的路径
 
   ```sh
@@ -97,7 +104,7 @@ cargo add miai
 使用示例：
 
 ```rust
-use miai::{PlayState, Xiaoai};
+use miai::{PlayState, Xiaoai, time::OffsetDateTime};
 
 #[tokio::main]
 async fn main() {
@@ -128,6 +135,18 @@ async fn main() {
 
         // 让小爱执行文本，效果就跟口头询问一样
         xiaoai.nlp(&device_id, "查询今天的天气").await.unwrap();
+
+        // 给定一个截止日期和最大条数，查询小爱的对话记录
+        let until = OffsetDateTime::now_utc();
+        let limit = 3;
+        let records = xiaoai
+            .conversations(&device_id, &info.hardware, until, limit)
+            .await
+            .unwrap()
+            .records;
+        for record in records {
+            println!("在 {}，你曾问过小爱: {}", record.time, record.query);
+        }
 
         // 还可以进行低层次的请求，比如 Ubus Call
         let response = xiaoai
