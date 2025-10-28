@@ -7,7 +7,7 @@ use cookie_store::{CookieStore, RawCookie};
 use md5::{Digest, Md5};
 use reqwest::{Client, Url};
 use reqwest_cookie_store::CookieStoreMutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value};
 use sha1::Sha1;
 use tracing::trace;
@@ -149,7 +149,7 @@ impl Login {
 }
 
 /// [`Login::login`] 的响应体，但仅包含 [`Login::auth`] 所需的字段。
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
     pub qs: String,
     pub sid: String,
@@ -158,7 +158,7 @@ pub struct LoginResponse {
 }
 
 /// [`Login::auth`] 的响应体，但仅包含 [`Login::get_token`] 所需的字段。
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthResponse {
     pub location: String,
     pub nonce: Number,

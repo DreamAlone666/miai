@@ -10,7 +10,7 @@ use cookie_store::{
 };
 use reqwest::{Client, Url};
 use reqwest_cookie_store::CookieStoreMutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -361,7 +361,7 @@ pub enum PlayState {
 }
 
 /// 小爱设备信息。
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     /// 设备 ID。

@@ -39,14 +39,14 @@ pub mod json {
     pub use serde_json::*;
 }
 
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 pub use error::*;
 pub use xiaoai::*;
 
 /// 小爱服务请求的响应。
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct XiaoaiResponse<T = Value> {
     /// 错误码。
     ///
